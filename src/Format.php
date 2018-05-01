@@ -12,6 +12,8 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  */
 class Format {
 
+    private static $_instance;
+
     /**
      * Array output format
      */
@@ -81,7 +83,7 @@ class Format {
      * @throws Exception
      */
 
-    public function __construct($data = NULL, $from_type = NULL)
+    private function __construct($data = NULL, $from_type = NULL)
     {
         // Get the CodeIgniter reference
         $this->_CI = &get_instance();
@@ -104,6 +106,17 @@ class Format {
 
         // Set the member variable to the data passed
         $this->_data = $data;
+    }
+
+    /*
+     * Singleton Instance of Format class
+     */
+    public static function sharedInstance()
+    {
+        if (self::$_instance === null) {
+            self::$_instance = new Format();
+        }
+        return self::$_instance;
     }
 
     /**

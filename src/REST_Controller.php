@@ -1,9 +1,9 @@
 <?php
 namespace Restserver\Libraries;
 
+use Format;
 use Exception;
 use stdClass;
-require_once 'Format.php';
 
 defined('BASEPATH') OR exit('No direct script access allowed');
 
@@ -401,7 +401,7 @@ abstract class REST_Controller extends \CI_Controller {
     {
         parent::__construct();
 
-        $this->format = new Format();
+        $this->format = Format::sharedInstance();
 
         $this->preflight_checks();
 
