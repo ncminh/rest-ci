@@ -11,6 +11,8 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  * CodeIgniter Rest Controller
  * A fully REST-ful server implementation for CodeIgniter using one library, one config file and one controller.
  *
+ * This should be refactored later on.
+ *
  * @package         CodeIgniter
  * @subpackage      Libraries
  * @category        Libraries
