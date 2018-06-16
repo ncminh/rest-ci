@@ -1,0 +1,25 @@
+{
+	"description": "REST Server for the CI framework (Modified by Teddy - Source by Chris Kacerguis)",
+	"name": "ncminh/rest-ci",
+	"type": "project",
+	"homepage": "https://github.com/ncminh/rest-ci",
+	"authors": [
+		{
+			"name": "Teddy NGUYEN",
+			"role": "Developer"
+		}
+	],
+	"require": {
+		"php": ">=5.4.0"
+	},
+	"autoload": {
+		"classmap": [
+			"src/Format.php",
+			"src/REST_Controller.php"
+		]
+	},
+	"license": "MIT",
+	"support": {
+		"source": "https://github.com/ncminh/rest-ci"
+	}
+}
