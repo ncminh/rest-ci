@@ -1,7 +1,7 @@
 <?php
 namespace Restserver\Libraries;
 
-use Format;
+use Restserver\Libraries\Format as Format;
 use Exception;
 use stdClass;
 
