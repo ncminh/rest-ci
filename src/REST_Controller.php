@@ -1,7 +1,6 @@
 <?php
 namespace Restserver\Libraries;
 
-use Format;
 use Exception;
 use stdClass;
 
@@ -22,6 +21,8 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  * @version         3.0.0
  */
 abstract class REST_Controller extends \CI_Controller {
+
+    //region [HTTP CODES]
 
     // Ghi chú: Chỉ những mã HTTP thường dùng mới được lưu văn bản
 
@@ -166,6 +167,11 @@ abstract class REST_Controller extends \CI_Controller {
     const HTTP_NOT_EXTENDED = 510;                                                // RFC2774
     const HTTP_NETWORK_AUTHENTICATION_REQUIRED = 511;
 
+    //endregion
+
+
+    //region [Protected properties for derived class using]
+
     /**
      *  Thuộc tính format để định dạng kết quả trả về
      */
@@ -285,13 +291,6 @@ abstract class REST_Controller extends \CI_Controller {
     protected $_args = [];
 
     /**
-     * The insert_id of the log entry (if we have one)
-     *
-     * @var string
-     */
-    protected $_insert_id = '';
-
-    /**
      * If the request is allowed based on the API key provided
      *
      * @var bool
@@ -359,6 +358,10 @@ abstract class REST_Controller extends \CI_Controller {
      */
     protected $_enable_xss = FALSE;
 
+    protected $_insert_id;
+
+    protected $_logger;
+
     /**
      * HTTP status codes and their respective description
      * Note: Only the widely used HTTP status codes are used
@@ -382,15 +385,17 @@ abstract class REST_Controller extends \CI_Controller {
         self::HTTP_NOT_IMPLEMENTED => 'NOT IMPLEMENTED'
     ];
 
-    /**
+  //endregion
+
+  /**
      * Extend this function to apply additional checking early on in the process
      *
      * @access protected
      * @return void
      */
-    protected function early_checks()
-    {
-    }
+  protected function early_checks()
+  {
+  }
 
     /**
      * Constructor for the REST API
@@ -399,14 +404,11 @@ abstract class REST_Controller extends \CI_Controller {
      * @param string $config Configuration filename minus the file extension
      * e.g: my_rest.php is passed as 'my_rest'
      */
-    public function __construct($config = 'rest')
+  public function __construct($config = 'rest')
     {
         parent::__construct();
-
         $this->format = Format::sharedInstance();
-
         $this->preflight_checks();
-
         // Set the default value of global xss filtering. Same approach as CodeIgniter 3
         $this->_enable_xss = ($this->config->item('global_xss_filtering') === TRUE);
 
@@ -421,7 +423,6 @@ abstract class REST_Controller extends \CI_Controller {
         $this->load->config($config);
 
         // At present the library is bundled with REST_Controller 2.5+, but will eventually be part of CodeIgniter (no citation)
-        //$this->load->library('format');
 
         // Determine supported output formats from configuration
         $supported_formats = $this->config->item('rest_supported_formats');
@@ -449,10 +450,8 @@ abstract class REST_Controller extends \CI_Controller {
 
         // Get the language
         $language = $this->config->item('rest_language');
-        if ($language === NULL)
-        {
-            $language = 'english';
-        }
+
+        if ($language === NULL) { $language = 'english'; }
 
         // Load the language file
         $this->lang->load('rest_controller', $language, FALSE, TRUE, __DIR__."/../");
@@ -476,10 +475,7 @@ abstract class REST_Controller extends \CI_Controller {
 
         // Check for CORS access request
         $check_cors = $this->config->item('check_cors');
-        if ($check_cors === TRUE)
-        {
-            $this->_check_cors();
-        }
+        if ($check_cors === TRUE) { $this->_check_cors(); }
 
         // Create an argument container if it doesn't exist e.g. _get_args
         if (isset($this->{'_'.$this->request->method.'_args'}) === FALSE)
@@ -540,16 +536,20 @@ abstract class REST_Controller extends \CI_Controller {
         $this->early_checks();
 
         // Load DB if its enabled
-        if ($this->config->item('rest_database_group') && ($this->config->item('rest_enable_keys') || $this->config->item('rest_enable_logging')))
+        if ($this->config->item('rest_database_group') && ($this->config->item('rest_enable_keys')
+            || $this->config->item('rest_enable_logging')))
         {
             $this->rest->db = $this->load->database($this->config->item('rest_database_group'), TRUE);
         }
-
         // Use whatever database is in use (isset returns FALSE)
         elseif (property_exists($this, 'db'))
         {
             $this->rest->db = $this->db;
         }
+
+      if($this->rest->db != NULL) {
+        $this->_logger = new REST_Logger($this->rest->db);
+      }
 
         // Check if there is a specific auth type for the current class/method
         // _auth_override_check could exit so we need $this->rest->db initialized before
@@ -604,7 +604,7 @@ abstract class REST_Controller extends \CI_Controller {
      * @access public
      * @return void
      */
-    public function __destruct()
+  public function __destruct()
     {
         // Get the current timestamp
         $this->_end_rtime = microtime(TRUE);
@@ -612,9 +612,26 @@ abstract class REST_Controller extends \CI_Controller {
         // Log the loading time to the log table
         if ($this->config->item('rest_enable_logging') === TRUE)
         {
-            $this->_log_access_time();
+          $payload['rtime'] = $this->_end_rtime - $this->_start_rtime;
+          $this->_logger->log_access_time($payload, $this->_insert_id);
         }
     }
+
+  // Log the request to database
+  protected function _log_request($authorized = FALSE)
+  {
+    $log = array(
+      'uri'         => $this->uri->uri_string(),
+      'method'      => $this->request->method,
+      'params'      => $this->_args ? ($this->config->item('rest_logs_json_params') === TRUE ? json_encode($this->_args) : serialize($this->_args)) : NULL,
+      'api_key'     => isset($this->rest->key) ? $this->rest->key : '',
+      'ip_address'  => $this->input->ip_address(),
+      'time'        => time(),
+      'authorized'  => $authorized
+    );
+    $log_result = $this->_logger->persist_request_log($log);
+    if($log_result > 0) { $this->_insert_id = $log_result; }
+  }
 
     /**
      * Checks to see if we have everything we need to run this library.
@@ -622,21 +639,21 @@ abstract class REST_Controller extends \CI_Controller {
      * @access protected
      * @throws Exception
      */
-    protected function preflight_checks()
+  protected function preflight_checks()
+  {
+    // Check to see if PHP is equal to or greater than 5.4.x
+    if (is_php('5.4') === FALSE)
     {
-        // Check to see if PHP is equal to or greater than 5.4.x
-        if (is_php('5.4') === FALSE)
-        {
-            // CodeIgniter 3 is recommended for v5.4 or above
-            throw new Exception('Using PHP v'.PHP_VERSION.', though PHP v5.4 or greater is required');
-        }
-
-        // Check to see if this is CI 3.x
-        if (explode('.', CI_VERSION, 2)[0] < 3)
-        {
-            throw new Exception('REST Server requires CodeIgniter 3.x');
-        }
+        // CodeIgniter 3 is recommended for v5.4 or above
+        throw new Exception('Using PHP v'.PHP_VERSION.', though PHP v5.4 or greater is required');
     }
+
+    // Check to see if this is CI 3.x
+    if (explode('.', CI_VERSION, 2)[0] < 3)
+    {
+        throw new Exception('REST Server requires CodeIgniter 3.x');
+    }
+  }
 
     /**
      * Requests are not made to methods directly, the request will be for
@@ -650,8 +667,6 @@ abstract class REST_Controller extends \CI_Controller {
      */
     public function _remap($object_called, $arguments = [])
     {
-        //var_dump($object_called);
-
         // Should we answer if not over SSL?
         if ($this->config->item('force_https') && $this->request->ssl === FALSE)
         {
@@ -758,7 +773,7 @@ abstract class REST_Controller extends \CI_Controller {
         // No key stuff, but record that stuff is happening
         elseif ($this->config->item('rest_enable_logging') && $log_method)
         {
-            $this->_log_request($authorized = TRUE);
+            $this->_log_request(TRUE);
         }
 
         // Call the controller method and passed arguments
@@ -846,7 +861,7 @@ abstract class REST_Controller extends \CI_Controller {
         // JC: Log response code only if rest logging enabled
         if ($this->config->item('rest_enable_logging') === TRUE)
         {
-            $this->_log_response_code($http_code);
+            $this->_log_response_code($http_code, $this->_insert_id);
         }
 
         // Output the data
@@ -916,7 +931,7 @@ abstract class REST_Controller extends \CI_Controller {
     }
 
     /**
-     * Gets the default format from the configuration. Fallbacks to 'json'
+     * Gets the default format from the configuration. Fallback to 'json'
      * if the corresponding configuration option $config['rest_default_format']
      * is missing or is empty
      *
@@ -1140,33 +1155,6 @@ abstract class REST_Controller extends \CI_Controller {
         return $lang;
     }
 
-    /**
-     * Add the request to the log table
-     *
-     * @access protected
-     * @param bool $authorized TRUE the user is authorized; otherwise, FALSE
-     * @return bool TRUE the data was inserted; otherwise, FALSE
-     */
-    protected function _log_request($authorized = FALSE)
-    {
-        // Insert the request into the log table
-        $is_inserted = $this->rest->db
-            ->insert(
-                $this->config->item('rest_logs_table'), [
-                'uri' => $this->uri->uri_string(),
-                'method' => $this->request->method,
-                'params' => $this->_args ? ($this->config->item('rest_logs_json_params') === TRUE ? json_encode($this->_args) : serialize($this->_args)) : NULL,
-                'api_key' => isset($this->rest->key) ? $this->rest->key : '',
-                'ip_address' => $this->input->ip_address(),
-                'time' => time(),
-                'authorized' => $authorized
-            ]);
-
-        // Get the last insert id to update at a later stage of the request
-        $this->_insert_id = $this->rest->db->insert_id();
-
-        return $is_inserted;
-    }
 
     /**
      * Check if the requests to a controller method exceed a limit
@@ -1466,6 +1454,8 @@ abstract class REST_Controller extends \CI_Controller {
         return FALSE;
     }
 
+  //region [HTTP Methods Parsing]
+
     /**
      * Parse the GET request arguments
      *
@@ -1593,7 +1583,9 @@ abstract class REST_Controller extends \CI_Controller {
         $this->_query_args = $this->input->get();
     }
 
-    // INPUT FUNCTION --------------------------------------------------------------
+  //endregion
+
+  //region [HTTP METHODS & PARSING]
 
     /**
      * Retrieve a value from a GET request
@@ -1728,16 +1720,18 @@ abstract class REST_Controller extends \CI_Controller {
         return isset($this->_patch_args[$key]) ? $this->_xss_clean($this->_patch_args[$key], $xss_clean) : NULL;
     }
 
-    /**
-     * Retrieve a value from the query parameters
-     *
-     * @access public
-     * @param NULL $key Key to retrieve from the query parameters
-     * If NULL an array of arguments is returned
-     * @param NULL $xss_clean Whether to apply XSS filtering
-     * @return array|string|NULL Value from the query parameters; otherwise, NULL
-     */
-    public function query($key = NULL, $xss_clean = NULL)
+  //endregion
+
+  /**
+   * Retrieve a value from the query parameters
+   *
+   * @access public
+   * @param NULL $key Key to retrieve from the query parameters
+   * If NULL an array of arguments is returned
+   * @param NULL $xss_clean Whether to apply XSS filtering
+   * @return array|string|NULL Value from the query parameters; otherwise, NULL
+   */
+  public function query($key = NULL, $xss_clean = NULL)
     {
         if ($key === NULL)
         {
@@ -1747,15 +1741,15 @@ abstract class REST_Controller extends \CI_Controller {
         return isset($this->_query_args[$key]) ? $this->_xss_clean($this->_query_args[$key], $xss_clean) : NULL;
     }
 
-    /**
-     * Sanitizes data so that Cross Site Scripting Hacks can be
-     * prevented
-     *
-     * @access protected
-     * @param string $value Input data
-     * @param bool $xss_clean Whether to apply XSS filtering
-     * @return string
-     */
+  /**
+   * Sanitizes data so that Cross Site Scripting Hacks can be
+   * prevented
+   *
+   * @access protected
+   * @param string $value Input data
+   * @param bool $xss_clean Whether to apply XSS filtering
+   * @return string
+   */
     protected function _xss_clean($value, $xss_clean)
     {
         is_bool($xss_clean) || $xss_clean = $this->_enable_xss;
@@ -2170,41 +2164,6 @@ abstract class REST_Controller extends \CI_Controller {
                 $this->config->item('rest_status_field_name') => FALSE,
                 $this->config->item('rest_message_field_name') => $this->lang->line('text_rest_unauthorized')
             ], self::HTTP_UNAUTHORIZED);
-    }
-
-    /**
-     * Updates the log table with the total access time
-     *
-     * @access protected
-     * @author Chris Kacerguis
-     * @return bool TRUE log table updated; otherwise, FALSE
-     */
-    protected function _log_access_time()
-    {
-        $payload['rtime'] = $this->_end_rtime - $this->_start_rtime;
-
-        return $this->rest->db->update(
-                $this->config->item('rest_logs_table'), $payload, [
-                'id' => $this->_insert_id
-            ]);
-    }
-
-    /**
-     * Updates the log table with HTTP response code
-     *
-     * @access protected
-     * @author Justin Chen
-     * @param $http_code int HTTP status code
-     * @return bool TRUE log table updated; otherwise, FALSE
-     */
-    protected function _log_response_code($http_code)
-    {
-        $payload['response_code'] = $http_code;
-
-        return $this->rest->db->update(
-            $this->config->item('rest_logs_table'), $payload, [
-            'id' => $this->_insert_id
-        ]);
     }
 
     /**

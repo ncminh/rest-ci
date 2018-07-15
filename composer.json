@@ -15,7 +15,9 @@
 	"autoload": {
 		"classmap": [
 			"src/Format.php",
-			"src/REST_Controller.php"
+			"src/REST_Controller.php",
+			"src/REST_Model.php",
+			"src/REST_Log.php"
 		]
 	},
 	"license": "MIT",
